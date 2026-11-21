@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { run } from '../solve.js';
@@ -18,11 +17,13 @@ const { readCsv } = await import(url(join(baseline, 'vendor/csv-reader/index.js'
 const generator = join(kit, 'program/generator');
 const { streamFor } = await import(url(join(generator, 'rng.ts')));
 const { generate } = await import(url(join(generator, 'subject/csv-cases.mjs')));
+let matched = 0;
 
 function compare(text) {
   for (const header of [false, true]) {
     const input = { text, header };
     assert.equal(JSON.stringify(run(input)), JSON.stringify(readCsv(input)), JSON.stringify(input));
+    matched++;
   }
 }
 
@@ -36,7 +37,7 @@ exhaust('\uFEFF', 6);
 for (const text of ['a,東京\r\n😀,\ud800', '"a"\rb\r,c', 'a,b,c\n1\n1,2,3,4']) compare(text);
 console.log('234,380 exhaustive and targeted inputs matched byte for byte');
 
-const temp = mkdtempSync(join(tmpdir(), 'csv-reader-verify-'));
+const temp = mkdtempSync(join(root, '.csv-reader-verify-'));
 try {
   const input = join(temp, 'input');
   const output = join(temp, 'output');
@@ -70,11 +71,13 @@ try {
     const oracle = execute(baseline).answer;
     if (set === 0) assert.ok(oracle.equals(Buffer.from(JSON.stringify(expected.cases.map(c => c.output)))));
     assert.ok(execute(root).answer.equals(oracle), `Warm-up mismatch on ${name}`);
+    matched += 6;
     const samples = [[], []];
     for (let round = 0; round < rounds; round++) {
       for (const i of [round % 2, 1 - round % 2]) {
         const result = execute(i === 0 ? baseline : root);
         assert.ok(result.answer.equals(oracle), `Output mismatch on ${name}, round ${round}, program ${i}`);
+        matched += 6;
         samples[i].push(result.cpu);
       }
     }
@@ -84,6 +87,7 @@ try {
   }
   const [house, entry] = ['house', 'entry'].map(key => means(summary.map(row => row[key])));
   console.log(`Mean across sets: ${house.toFixed(1)} ms house, ${entry.toFixed(1)} ms entry, ${(house / entry).toFixed(2)}x`);
+  console.log(`Differential result: ${matched.toLocaleString('en-US')} case-output pairs, 0 mismatches`);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
